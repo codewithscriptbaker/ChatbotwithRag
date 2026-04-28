@@ -14,7 +14,7 @@ Try the [ChatGPT Lite Demo Site](https://gptlite.vercel.app).
 
 | Folder Chat | Notes |
 |:-----------:|:-----:|
-| ![Folder Chat](./docs/images/folder-chat.jpg) | ![Notes](./docs/images/notes.jpg) |
+| ![Folder Chat](./docs/images/folder-chat.png) | ![Notes](./docs/images/notes.png) |
 
 
 ## Features
