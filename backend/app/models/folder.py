@@ -27,3 +27,7 @@ def get_folder(folder_id: str) -> FolderRecord | None:
 def list_folders() -> list[FolderRecord]:
     return sorted(_folders.values(), key=lambda f: f.created_at, reverse=True)
 
+
+def delete_folder(folder_id: str) -> FolderRecord | None:
+    return _folders.pop(folder_id, None)
+

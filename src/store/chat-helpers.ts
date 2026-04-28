@@ -30,8 +30,10 @@ export function normalizeChatList(list: JsonValue | Chat[]): Chat[] {
     const updatedAt = readJsonString(chat, 'updatedAt') ?? createdAt
     const pinned = typeof chat.pinned === 'boolean' ? chat.pinned : false
     const personaId = coercePersonaId(readJsonString(chat, 'personaId'))
+    const folderId = readJsonString(chat, 'folderId') ?? undefined
+    const folderName = readJsonString(chat, 'folderName') ?? undefined
     const title = resolveChatTitle({ title: readJsonString(chat, 'title'), personaId })
-    result.push({ id: chatId, pinned, createdAt, updatedAt, title, personaId })
+    result.push({ id: chatId, pinned, createdAt, updatedAt, title, personaId, folderId, folderName })
   }
 
   return result
@@ -45,6 +47,8 @@ export type CreateChatRecordArgs = {
   createdAt?: string
   updatedAt?: string
   pinned?: boolean
+  folderId?: string
+  folderName?: string
 }
 
 export function createChatRecord({
@@ -54,7 +58,9 @@ export function createChatRecord({
   personaName,
   createdAt = new Date().toISOString(),
   updatedAt = createdAt,
-  pinned
+  pinned,
+  folderId,
+  folderName
 }: CreateChatRecordArgs = {}): Chat {
   const chat: Chat = {
     id,
@@ -65,6 +71,12 @@ export function createChatRecord({
   }
   if (pinned !== undefined) {
     chat.pinned = pinned
+  }
+  if (folderId) {
+    chat.folderId = folderId
+  }
+  if (folderName) {
+    chat.folderName = folderName
   }
   return chat
 }

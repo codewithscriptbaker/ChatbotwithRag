@@ -1,5 +1,6 @@
 from pathlib import Path
-
+import json
+from collections.abc import AsyncIterator
 import httpx
 
 from app.core.config import get_settings
@@ -46,3 +47,32 @@ async def generate_answer(
 
     data = response.json()
     return data.get("message", {}).get("content", "").strip()
+
+
+async def stream_answer(
+    prompt: str,
+    temperature: float = 0.2,
+) -> AsyncIterator[str]:
+    settings = get_settings()
+    url = f"{settings.ollama_base_url}/api/chat"
+
+    payload = {
+        "model": settings.ollama_chat_model,
+        "messages": [{"role": "user", "content": prompt}],
+        "stream": True,
+        "options": {"temperature": temperature},
+    }
+
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        async with client.stream("POST", url, json=payload) as response:
+            response.raise_for_status()
+            async for line in response.aiter_lines():
+                if not line:
+                    continue
+                obj = json.loads(line)
+                msg = obj.get("message", {})
+                content = msg.get("content")
+                if content:
+                    yield str(content)
+                if obj.get("done"):
+                    break

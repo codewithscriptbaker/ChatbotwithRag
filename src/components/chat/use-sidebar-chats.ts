@@ -51,7 +51,7 @@ export function useSidebarChats({ closeMobile }: UseSidebarChatsArgs): {
   renameValue: string
   trimmedRenameValue: string
   isDeleteConfirmOpen: boolean
-  handleNewChat: () => void
+  handleNewChat: () => SidebarChatListItem | undefined
   handleOpenPersonaLibrary: () => void
   handleSelectChat: (chat: SidebarChatListItem) => void
   startRename: (chatId: string, currentTitle: string) => void
@@ -80,9 +80,10 @@ export function useSidebarChats({ closeMobile }: UseSidebarChatsArgs): {
   const trimmedRenameValue = renameValue.trim()
 
   const handleNewChat = useCallback(() => {
-    openOrCreateDefaultChat()
+    const created = openOrCreateDefaultChat()
     closePersonaPanel()
     closeMobile()
+    return created
   }, [closePersonaPanel, closeMobile, openOrCreateDefaultChat])
 
   const handleOpenPersonaLibrary = useCallback(() => {

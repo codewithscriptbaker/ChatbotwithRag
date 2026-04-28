@@ -51,7 +51,7 @@ export async function POST(req: NextRequest): Promise<Response> {
   try {
     const documentIds = extractDocumentIds(parsed.messages)
 
-    const backendResponse = await fetch(`${BACKEND_URL}/api/v1/chat`, {
+    const backendResponse = await fetch(`${BACKEND_URL}/api/v1/chat/stream`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -62,26 +62,50 @@ export async function POST(req: NextRequest): Promise<Response> {
       signal: req.signal
     })
 
-    const payload = (await backendResponse.json()) as {
-      answer?: string
-      detail?: string
-    }
-
     if (!backendResponse.ok) {
+      const payload = (await backendResponse.json().catch(() => ({}))) as { detail?: string }
       return new AppError(
         'internal_error',
         payload.detail || GENERIC_INTERNAL_ERROR_MESSAGE
       ).toResponse()
     }
 
-    const answer = typeof payload.answer === 'string' ? payload.answer : ''
     const textId = crypto.randomUUID()
 
     const stream = createUIMessageStream({
-      execute: ({ writer }) => {
+      execute: async ({ writer }) => {
         writer.write({ type: 'start' })
         writer.write({ type: 'text-start', id: textId })
-        writer.write({ type: 'text-delta', id: textId, delta: answer })
+
+        const reader = backendResponse.body?.getReader()
+        if (!reader) {
+          throw new Error('Missing backend stream body')
+        }
+        const decoder = new TextDecoder()
+        let buffer = ''
+
+        while (true) {
+          const { value, done } = await reader.read()
+          if (done) break
+          buffer += decoder.decode(value, { stream: true })
+
+          const frames = buffer.split('\n\n')
+          buffer = frames.pop() ?? ''
+
+          for (const frame of frames) {
+            const dataLine = frame
+              .split('\n')
+              .find((line) => line.trimStart().startsWith('data:'))
+            if (!dataLine) continue
+            const eventText = dataLine.replace(/^data:\s*/, '').trim()
+            if (!eventText) continue
+            const event = JSON.parse(eventText) as { type?: string; delta?: string }
+            if (event.type === 'delta' && typeof event.delta === 'string') {
+              writer.write({ type: 'text-delta', id: textId, delta: event.delta })
+            }
+          }
+        }
+
         writer.write({ type: 'text-end', id: textId })
         writer.write({ type: 'finish', finishReason: 'stop' })
       },

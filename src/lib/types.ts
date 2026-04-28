@@ -54,4 +54,6 @@ export interface Chat {
   title: string
   pinned?: boolean
   personaId?: PersonaId
+  folderId?: string
+  folderName?: string
 }

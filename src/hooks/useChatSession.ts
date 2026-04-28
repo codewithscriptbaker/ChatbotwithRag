@@ -253,7 +253,9 @@ export function useChatSession(chatId: string): UseChatSessionReturn {
   const [hasPendingToolCall, setHasPendingToolCall] = useState(false)
   const [regeneratingAssistantId, setRegeneratingAssistantId] = useState<string | null>(null)
   const [regeneratingPhase, setRegeneratingPhase] = useState<ChatStreamPhase>('idle')
+  const [isRegenerating, setIsRegenerating] = useState(false)
   const regenerateTokenRef = useRef(0)
+  const regenerateAbortRef = useRef<AbortController | null>(null)
   const [transport] = useState(createChatTransport)
   const [initialMessages] = useState(() => getMessagesForChat(chatId))
   const resetToolCallPhase = useCallback(() => {
@@ -440,9 +442,26 @@ export function useChatSession(chatId: string): UseChatSessionReturn {
   )
 
   const handleStop = useCallback(() => {
+    if (isRegenerating) {
+      regenerateTokenRef.current += 1
+      regenerateAbortRef.current?.abort()
+      regenerateAbortRef.current = null
+      setRegeneratingAssistantId(null)
+      setRegeneratingPhase('idle')
+      setIsRegenerating(false)
+      resetToolCallPhase()
+      return
+    }
+
     stopStream()
     setMessages(commitTrimmedMessages)
-  }, [commitTrimmedMessages, setMessages, stopStream])
+  }, [
+    commitTrimmedMessages,
+    isRegenerating,
+    resetToolCallPhase,
+    setMessages,
+    stopStream
+  ])
 
   const handleClearMessages = useCallback(() => {
     if (isLoading) return
@@ -509,6 +528,9 @@ export function useChatSession(chatId: string): UseChatSessionReturn {
         setComposerError(null)
         setRegeneratingAssistantId(assistantMessageId)
         setRegeneratingPhase('thinking')
+        setIsRegenerating(true)
+        const abortController = new AbortController()
+        regenerateAbortRef.current = abortController
         const currentToken = ++regenerateTokenRef.current
 
         setMessages((previousMessages) => {
@@ -529,6 +551,7 @@ export function useChatSession(chatId: string): UseChatSessionReturn {
           headers: {
             'Content-Type': 'application/json'
           },
+          signal: abortController.signal,
           body: JSON.stringify({
             prompt: personaPrompt,
             messages: contextMessages.map((message) => ({
@@ -611,6 +634,9 @@ export function useChatSession(chatId: string): UseChatSessionReturn {
 
         return true
       } catch (error) {
+        if (error instanceof Error && error.name === 'AbortError') {
+          return true
+        }
         setMessages((previousMessages) => {
           const nextMessages = [...previousMessages]
           const nextAssistantIndex = nextMessages.findIndex(
@@ -627,6 +653,8 @@ export function useChatSession(chatId: string): UseChatSessionReturn {
         setComposerError(getComposerErrorMessage(error))
         return false
       } finally {
+        regenerateAbortRef.current = null
+        setIsRegenerating(false)
         setRegeneratingAssistantId(null)
         setRegeneratingPhase('idle')
       }
@@ -646,7 +674,7 @@ export function useChatSession(chatId: string): UseChatSessionReturn {
     messages,
     status,
     streamPhase,
-    isLoading,
+    isLoading: isLoading || isRegenerating,
     isChatHydrated,
     streamError,
     regeneratingAssistantId,

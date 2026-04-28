@@ -13,30 +13,74 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
   ArrowRight,
+  BadgeHelp,
+  BookMarked,
   ChevronRight,
   Clipboard,
+  FileBarChart2,
   FileText,
+  Grid3x3,
   Globe,
   GripHorizontal,
   Laptop2,
   Link2,
+  Map,
   Plus,
+  Presentation,
+  RectangleEllipsis,
   Search,
   Sparkles,
+  Table2,
   Upload,
   Youtube
 } from 'lucide-react'
 
 const studioTiles = [
-  'Audio Overview',
-  'Study Guide',
-  'Video Overview',
-  'Mind Map',
-  'Reports',
-  'Flashcards',
-  'Quiz',
-  'Infographic',
-  'Data Table'
+  {
+    label: 'Audio Overview',
+    icon: RectangleEllipsis,
+    style: 'bg-violet-500/10 text-violet-200 border-violet-400/25 hover:bg-violet-500/20'
+  },
+  {
+    label: 'Study Guide',
+    icon: BookMarked,
+    style: 'bg-emerald-500/10 text-emerald-200 border-emerald-400/25 hover:bg-emerald-500/20'
+  },
+  {
+    label: 'Video Overview',
+    icon: Presentation,
+    style: 'bg-sky-500/10 text-sky-200 border-sky-400/25 hover:bg-sky-500/20'
+  },
+  {
+    label: 'Mind Map',
+    icon: Map,
+    style: 'bg-amber-500/10 text-amber-200 border-amber-400/25 hover:bg-amber-500/20'
+  },
+  {
+    label: 'Reports',
+    icon: FileBarChart2,
+    style: 'bg-rose-500/10 text-rose-200 border-rose-400/25 hover:bg-rose-500/20'
+  },
+  {
+    label: 'Flashcards',
+    icon: Grid3x3,
+    style: 'bg-cyan-500/10 text-cyan-200 border-cyan-400/25 hover:bg-cyan-500/20'
+  },
+  {
+    label: 'Quiz',
+    icon: BadgeHelp,
+    style: 'bg-fuchsia-500/10 text-fuchsia-200 border-fuchsia-400/25 hover:bg-fuchsia-500/20'
+  },
+  {
+    label: 'Infographic',
+    icon: Sparkles,
+    style: 'bg-lime-500/10 text-lime-200 border-lime-400/25 hover:bg-lime-500/20'
+  },
+  {
+    label: 'Data Table',
+    icon: Table2,
+    style: 'bg-indigo-500/10 text-indigo-200 border-indigo-400/25 hover:bg-indigo-500/20'
+  }
 ]
 
 export default function WorkspaceNotebookPage(): React.JSX.Element {
@@ -184,11 +228,14 @@ export default function WorkspaceNotebookPage(): React.JSX.Element {
             <div className="grid grid-cols-2 gap-2 p-3">
               {studioTiles.map((tile) => (
                 <button
-                  key={tile}
+                  key={tile.label}
                   type="button"
-                  className="bg-muted/35 hover:bg-muted/60 text-foreground rounded-xl px-3 py-2 text-left text-xs font-medium transition-colors"
+                  className={`rounded-xl border px-3 py-2 text-left text-xs font-medium transition-colors ${tile.style}`}
                 >
-                  {tile}
+                  <span className="flex items-center gap-2">
+                    <tile.icon className="size-3.5 shrink-0" aria-hidden="true" />
+                    <span className="truncate">{tile.label}</span>
+                  </span>
                 </button>
               ))}
             </div>

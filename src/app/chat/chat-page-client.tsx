@@ -8,7 +8,13 @@ import { Header } from '@/components/header/header'
 import { SidebarProvider } from '@/components/ui/sidebar'
 import type { Persona } from '@/lib/types'
 import { cn } from '@/lib/utils'
-import { selectHydrate, selectOnCreateChat, useChatStore } from '@/store/chat-store'
+import {
+  selectGetChatById,
+  selectHydrate,
+  selectOnChangeChat,
+  selectOnCreateChat,
+  useChatStore
+} from '@/store/chat-store'
 import {
   selectClosePersonaPanel,
   selectPersonaModalOpen,
@@ -70,14 +76,27 @@ function ChatExperience(): React.JSX.Element {
   )
 }
 
-export default function ChatPageClient(): React.JSX.Element {
+type ChatPageClientProps = {
+  chatId?: string
+}
+
+export default function ChatPageClient({ chatId }: ChatPageClientProps = {}): React.JSX.Element {
   const hydrate = useChatStore(selectHydrate)
+  const getChatById = useChatStore(selectGetChatById)
+  const onChangeChat = useChatStore(selectOnChangeChat)
 
   useEffect(() => {
     startTransition(() => {
       hydrate()
     })
   }, [hydrate])
+
+  useEffect(() => {
+    if (!chatId) return
+    const chat = getChatById(chatId)
+    if (!chat) return
+    onChangeChat(chat)
+  }, [chatId, getChatById, onChangeChat])
 
   return <ChatExperience />
 }

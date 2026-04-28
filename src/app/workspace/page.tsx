@@ -4,59 +4,11 @@ import {
   ArrowUpRight,
   Brain,
   Clock3,
-  Compass,
-  EllipsisVertical,
   Filter,
   Plus,
   Search,
   SlidersHorizontal
 } from 'lucide-react'
-
-const featuredNotebooks = [
-  {
-    id: 'featured-1',
-    title: 'Earnings Reports For Top 50 Corporations',
-    meta: 'Apr 18, 2025 - 267 sources'
-  },
-  {
-    id: 'featured-2',
-    title: "OpenStax's Biology",
-    meta: 'Jul 31, 2025 - 13 sources'
-  },
-  {
-    id: 'featured-3',
-    title: 'The World Ahead 2026',
-    meta: 'Dec 19, 2025 - 70 sources'
-  },
-  {
-    id: 'featured-4',
-    title: "Bracket Guide To Men's College",
-    meta: 'Feb 26, 2026 - 161 sources'
-  }
-]
-
-const recentNotebooks = [
-  {
-    id: 'recent-1',
-    title: 'Deep Learning: Neural Networks and ML Foundations',
-    meta: 'Dec 9, 2025 - 2 sources'
-  },
-  {
-    id: 'recent-2',
-    title: 'Untitled notebook',
-    meta: 'Apr 8, 2026 - 0 sources'
-  },
-  {
-    id: 'recent-3',
-    title: 'Research notebook',
-    meta: 'Apr 8, 2026 - 0 sources'
-  },
-  {
-    id: 'recent-4',
-    title: 'Deep Learning and Natural Language',
-    meta: 'Dec 9, 2025 - 1 source'
-  }
-]
 
 export default function WorkspacePage(): React.JSX.Element {
   return (
@@ -119,23 +71,8 @@ export default function WorkspacePage(): React.JSX.Element {
                 <ArrowUpRight className="size-3.5" />
               </Button>
             </div>
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
-              {featuredNotebooks.map((notebook) => (
-                <Link
-                  key={notebook.id}
-                  href="/workspace/notebook"
-                  className="from-card to-muted/50 border-border/70 hover:border-primary/40 group relative overflow-hidden rounded-2xl border bg-gradient-to-br p-4 transition-colors"
-                >
-                  <div className="bg-primary/12 text-primary mb-12 inline-flex size-8 items-center justify-center rounded-full">
-                    <Compass className="size-4" />
-                  </div>
-                  <h3 className="line-clamp-2 text-base font-medium leading-snug">{notebook.title}</h3>
-                  <p className="text-muted-foreground mt-2 text-xs">{notebook.meta}</p>
-                  <span className="bg-background/75 border-border/70 absolute top-3 right-3 inline-flex size-7 items-center justify-center rounded-full border opacity-0 transition-opacity group-hover:opacity-100">
-                    <ArrowUpRight className="size-3.5" />
-                  </span>
-                </Link>
-              ))}
+            <div className="text-muted-foreground border-border/70 bg-card/40 flex min-h-[168px] items-center justify-center rounded-2xl border border-dashed px-6 py-8 text-sm">
+              No featured notebooks yet.
             </div>
           </section>
 
@@ -157,22 +94,9 @@ export default function WorkspacePage(): React.JSX.Element {
                 </span>
                 <span className="text-sm font-medium">Create new notebook</span>
               </Link>
-              {recentNotebooks.map((notebook) => (
-                <Link
-                  key={notebook.id}
-                  href="/workspace/notebook"
-                  className="bg-card border-border/70 hover:border-primary/45 group min-h-[168px] rounded-2xl border p-4 transition-colors"
-                >
-                  <div className="mb-7 flex items-start justify-between">
-                    <span className="bg-muted/75 inline-flex size-8 items-center justify-center rounded-lg text-sm">
-                      📝
-                    </span>
-                    <EllipsisVertical className="text-muted-foreground size-4" />
-                  </div>
-                  <h3 className="line-clamp-2 text-base leading-snug font-medium">{notebook.title}</h3>
-                  <p className="text-muted-foreground mt-2 text-xs">{notebook.meta}</p>
-                </Link>
-              ))}
+              <div className="text-muted-foreground border-border/70 bg-card/40 flex min-h-[168px] items-center justify-center rounded-2xl border border-dashed p-4 text-center text-sm md:col-span-1 lg:col-span-4">
+                No recent notebooks yet.
+              </div>
             </div>
           </section>
         </div>

@@ -7,6 +7,12 @@ import { AppIconButton } from '@/components/common/app-button'
 import { ButtonWithTooltip } from '@/components/common/button-with-tooltip'
 import { ConfirmActionDialog } from '@/components/common/confirm-action-dialog'
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu'
+import {
   Sidebar,
   SidebarContent,
   SidebarFooter,
@@ -19,19 +25,22 @@ import {
   useSidebar
 } from '@/components/ui/sidebar'
 import { cn } from '@/lib/utils'
+import { selectOnDeleteChat, useChatStore } from '@/store/chat-store'
 import {
   Bot,
   ChevronDown,
   Compass,
   ExternalLink,
   FileText,
+  MoreHorizontal,
   FolderClosed,
   FolderOpen,
   FolderPlus,
   PanelLeftClose,
   Plus,
   Search,
-  Sparkles
+  Sparkles,
+  Trash2
 } from 'lucide-react'
 
 import { SearchChatsDialog } from './search-chats-dialog'
@@ -55,6 +64,7 @@ export function SideBar(): React.JSX.Element {
   const { isMobile, setOpenMobile, toggleSidebar } = useSidebar()
   const router = useRouter()
   const pathname = usePathname()
+  const onDeleteChat = useChatStore(selectOnDeleteChat)
 
   const closeMobile = useCallback(() => {
     if (isMobile) setOpenMobile(false)
@@ -84,7 +94,14 @@ export function SideBar(): React.JSX.Element {
   } = useSidebarChats({ closeMobile })
 
   const handleNewChatAndNavigate = useCallback(() => {
-    handleNewChat()
+    const created = handleNewChat()
+    if (created?.id) {
+      const nextPath = `/chat/${created.id}`
+      if (pathname !== nextPath) {
+        router.push(nextPath)
+      }
+      return
+    }
     if (pathname !== '/chat') {
       router.push('/chat')
     }
@@ -93,8 +110,11 @@ export function SideBar(): React.JSX.Element {
   const [isSearchOpen, setIsSearchOpen] = useState(false)
   const [isKnowledgeOpen, setIsKnowledgeOpen] = useState(false)
   const [isFolderMenuOpen, setIsFolderMenuOpen] = useState(false)
+  const [isChatsMenuOpen, setIsChatsMenuOpen] = useState(true)
   const [openFolderIds, setOpenFolderIds] = useState<Record<string, boolean>>({})
   const [knowledgeFolders, setKnowledgeFolders] = useState<KnowledgeFolder[]>([])
+  const [isFolderDeleteConfirmOpen, setIsFolderDeleteConfirmOpen] = useState(false)
+  const [folderPendingDelete, setFolderPendingDelete] = useState<KnowledgeFolder | null>(null)
 
   useEffect(() => {
     const loadFolders = async () => {
@@ -113,8 +133,17 @@ export function SideBar(): React.JSX.Element {
   const handleSelectChatAndNavigate = useCallback(
     (chat: Parameters<typeof handleSelectChat>[0]) => {
       handleSelectChat(chat)
-      if (pathname !== '/chat') {
-        router.push('/chat')
+      if (chat.folderId) {
+        const folderRoute = `/chat/folder/${chat.folderId}?name=${encodeURIComponent(chat.folderName || chat.title)}`
+        if (pathname !== `/chat/folder/${chat.folderId}`) {
+          router.push(folderRoute)
+        }
+        return
+      }
+
+      const nextPath = `/chat/${chat.id}`
+      if (pathname !== nextPath) {
+        router.push(nextPath)
       }
     },
     [handleSelectChat, pathname, router]
@@ -124,8 +153,17 @@ export function SideBar(): React.JSX.Element {
     (chat: Parameters<typeof handleSelectChat>[0]) => {
       handleSelectChat(chat)
       closeMobile()
-      if (pathname !== '/chat') {
-        router.push('/chat')
+      if (chat.folderId) {
+        const folderRoute = `/chat/folder/${chat.folderId}?name=${encodeURIComponent(chat.folderName || chat.title)}`
+        if (pathname !== `/chat/folder/${chat.folderId}`) {
+          router.push(folderRoute)
+        }
+        return
+      }
+
+      const nextPath = `/chat/${chat.id}`
+      if (pathname !== nextPath) {
+        router.push(nextPath)
       }
     },
     [closeMobile, handleSelectChat, pathname, router]
@@ -148,6 +186,54 @@ export function SideBar(): React.JSX.Element {
   const toggleFolderOpen = useCallback((folderId: string) => {
     setOpenFolderIds((prev) => ({ ...prev, [folderId]: !prev[folderId] }))
   }, [])
+
+  const handleAskDeleteFolder = useCallback((folder: KnowledgeFolder) => {
+    setFolderPendingDelete(folder)
+    setIsFolderDeleteConfirmOpen(true)
+  }, [])
+
+  const handleFolderDeleteOpenChange = useCallback((open: boolean) => {
+    setIsFolderDeleteConfirmOpen(open)
+    if (!open) {
+      setFolderPendingDelete(null)
+    }
+  }, [])
+
+  const confirmDeleteFolder = useCallback(async () => {
+    if (!folderPendingDelete) return
+
+    try {
+      const response = await fetch(`/api/rag/folders/${folderPendingDelete.folder_id}`, {
+        method: 'DELETE'
+      })
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => ({}))) as { detail?: string }
+        throw new Error(payload.detail || 'Failed to delete folder')
+      }
+
+      setKnowledgeFolders((prev) =>
+        prev.filter((folder) => folder.folder_id !== folderPendingDelete.folder_id)
+      )
+      setOpenFolderIds((prev) => {
+        const next = { ...prev }
+        delete next[folderPendingDelete.folder_id]
+        return next
+      })
+
+      for (const chat of chatList.filter((item) => item.folderId === folderPendingDelete.folder_id)) {
+        onDeleteChat(chat)
+      }
+
+      if (pathname === `/chat/folder/${folderPendingDelete.folder_id}`) {
+        router.push('/chat')
+      }
+    } catch {
+      // Keep sidebar usable even if delete fails.
+    } finally {
+      setIsFolderDeleteConfirmOpen(false)
+      setFolderPendingDelete(null)
+    }
+  }, [chatList, folderPendingDelete, onDeleteChat, pathname, router])
 
   return (
     <>
@@ -218,17 +304,22 @@ export function SideBar(): React.JSX.Element {
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
-                <SidebarMenuItem>
+
+                {/* <SidebarMenuItem>
                   <SidebarMenuButton
                     onClick={handleOpenPersonaLibrary}
                     onMouseEnter={preloadPersonaPanel}
                     onFocus={preloadPersonaPanel}
                     className="h-9"
                   >
+
                     <Bot className="text-sidebar-foreground/60 size-4" aria-hidden="true" />
                     <span>Persona Library</span>
+
                   </SidebarMenuButton>
-                </SidebarMenuItem>
+                </SidebarMenuItem> */}
+                
+                
                 <SidebarMenuItem>
                   {IS_WORKSPACE_EXTERNAL ? (
                     <SidebarMenuButton asChild className="h-9">
@@ -366,6 +457,26 @@ export function SideBar(): React.JSX.Element {
                                     <FolderClosed className="size-3.5 shrink-0" aria-hidden="true" />
                                     <span className="truncate">{folder.name}</span>
                                   </button>
+                                  <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
+                                      <button
+                                        type="button"
+                                        className="text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-foreground flex size-6 shrink-0 items-center justify-center rounded-md transition-colors"
+                                        aria-label={`Folder actions for ${folder.name}`}
+                                      >
+                                        <MoreHorizontal className="size-3.5" aria-hidden="true" />
+                                      </button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent align="end" className="w-40">
+                                      <DropdownMenuItem
+                                        className="text-destructive focus:text-destructive cursor-pointer"
+                                        onClick={() => handleAskDeleteFolder(folder)}
+                                      >
+                                        <Trash2 className="mr-2 size-4" aria-hidden="true" />
+                                        Delete folder
+                                      </DropdownMenuItem>
+                                    </DropdownMenuContent>
+                                  </DropdownMenu>
                                 </div>
 
                                 <div
@@ -410,17 +521,51 @@ export function SideBar(): React.JSX.Element {
           </SidebarGroup>
 
           {/* Chat history */}
-          <SidebarChatGroups
-            isChatHydrated={isChatHydrated}
-            chatListLength={chatList.length}
-            currentChatId={currentChatId}
-            pinnedChats={pinnedChats}
-            recentChats={recentChats}
-            onSelectChat={handleSelectChatAndNavigate}
-            onStartRename={startRename}
-            onTogglePin={handleTogglePin}
-            onDeleteChat={handleDeleteChat}
-          />
+          <SidebarGroup className="pt-1">
+            <SidebarGroupContent>
+              <SidebarMenu>
+                <SidebarMenuItem>
+                  <button
+                    type="button"
+                    onClick={() => setIsChatsMenuOpen((prev) => !prev)}
+                    className="text-sidebar-foreground/85 hover:bg-sidebar-accent hover:text-sidebar-foreground flex h-9 w-full items-center gap-2 rounded-md px-2 text-sm"
+                    aria-expanded={isChatsMenuOpen}
+                    aria-controls="chats-main-dropdown"
+                  >
+                    <span className="flex-1 text-left">Chats</span>
+                    <ChevronDown
+                      className={cn(
+                        'text-sidebar-foreground/50 size-3.5 transition-transform duration-200',
+                        isChatsMenuOpen ? 'rotate-180' : ''
+                      )}
+                      aria-hidden="true"
+                    />
+                  </button>
+                </SidebarMenuItem>
+              </SidebarMenu>
+            </SidebarGroupContent>
+            <div
+              id="chats-main-dropdown"
+              className={cn(
+                'grid transition-all duration-300 ease-out',
+                isChatsMenuOpen ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'
+              )}
+            >
+              <div className="min-h-0 overflow-hidden">
+                <SidebarChatGroups
+                  isChatHydrated={isChatHydrated}
+                  chatListLength={chatList.length}
+                  currentChatId={currentChatId}
+                  pinnedChats={pinnedChats}
+                  recentChats={recentChats}
+                  onSelectChat={handleSelectChatAndNavigate}
+                  onStartRename={startRename}
+                  onTogglePin={handleTogglePin}
+                  onDeleteChat={handleDeleteChat}
+                />
+              </div>
+            </div>
+          </SidebarGroup>
         </SidebarContent>
 
         <SidebarFooter className="pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
@@ -449,6 +594,15 @@ export function SideBar(): React.JSX.Element {
         confirmLabel="Delete chat"
         confirmVariant="destructive"
         onConfirm={confirmDeleteChat}
+      />
+      <ConfirmActionDialog
+        open={isFolderDeleteConfirmOpen}
+        onOpenChange={handleFolderDeleteOpenChange}
+        title="Delete this folder?"
+        description="This deletes the folder, its uploaded files, and related folder chats."
+        confirmLabel="Delete folder"
+        confirmVariant="destructive"
+        onConfirm={confirmDeleteFolder}
       />
       <SearchChatsDialog
         open={isSearchOpen}

@@ -10,11 +10,12 @@ import {
   type SelectionAction
 } from '@/components/chat/selection-action-bubble'
 import { Separator } from '@/components/ui/separator'
+import type { ChatComposerPayload } from '@/lib/chat-attachments'
 import { useChatSession } from '@/hooks/useChatSession'
 import { useTextSelection } from '@/hooks/useTextSelection'
 import { isMobileViewport } from '@/lib/viewport'
 import { selectCurrentChatId, selectIsChatHydrated, useChatStore } from '@/store/chat-store'
-import { ArrowRight, BookOpen, Code2, Lightbulb, Loader2, PenLine } from 'lucide-react'
+import { ArrowDown, ArrowRight, BookOpen, Code2, Lightbulb, Loader2, PenLine } from 'lucide-react'
 import { StickToBottom } from 'use-stick-to-bottom'
 
 const CHAT_COLUMN_MAX_WIDTH = 'max-w-[60rem]'
@@ -52,7 +53,10 @@ function ActiveChat({
   const composerRef = useRef<ChatComposerHandle>(null)
   const messageAreaRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
+  const scrollViewportRef = useRef<HTMLDivElement | null>(null)
+  const bottomSentinelRef = useRef<HTMLDivElement>(null)
   const { selection, clearSelection } = useTextSelection(messageAreaRef)
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false)
   const [inlinePopup, setInlinePopup] = useState<{
     action: SelectionAction
     text: string
@@ -93,11 +97,51 @@ function ActiveChat({
   )
   const scrollBehavior = prefersReducedMotion ? 'auto' : 'smooth'
 
+  const scrollToBottom = useCallback(() => {
+    bottomSentinelRef.current?.scrollIntoView({ behavior: scrollBehavior, block: 'end' })
+  }, [scrollBehavior])
+
+  const handleSendAndFocus = useCallback(
+    async (payload: ChatComposerPayload): Promise<boolean> => {
+      scrollToBottom()
+      if (!isMobileViewport()) {
+        composerRef.current?.focus()
+      }
+      return await handleSend(payload)
+    },
+    [handleSend, scrollToBottom]
+  )
+
   useEffect(() => {
     if (!isMobileViewport()) {
       composerRef.current?.focus()
     }
   }, [chatId])
+
+  useEffect(() => {
+    const root =
+      scrollViewportRef.current ??
+      (scrollContainerRef.current?.querySelector('.overflow-y-auto') as HTMLDivElement | null)
+    if (root && scrollViewportRef.current !== root) {
+      scrollViewportRef.current = root
+    }
+    if (!root || !bottomSentinelRef.current) return
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        setShowScrollToBottom(!entry.isIntersecting)
+      },
+      {
+        root,
+        threshold: 0.98
+      }
+    )
+
+    observer.observe(bottomSentinelRef.current)
+    return () => {
+      observer.disconnect()
+    }
+  }, [messages.length, streamPhase, status])
 
   return (
     <ChatSessionProvider
@@ -116,7 +160,7 @@ function ActiveChat({
       setComposerError={setComposerError}
       onClear={handleClearMessages}
       onStop={handleStop}
-      onSend={handleSend}
+      onSend={handleSendAndFocus}
     >
       {messages.length === 0 ? (
         <WelcomeScreen composerRef={composerRef} />
@@ -132,9 +176,26 @@ function ActiveChat({
               <StickToBottom.Content className="relative flex min-h-full flex-col">
                 <div ref={messageAreaRef} className={`${CHAT_COLUMN_CLASS} relative flex-1 pt-5 pb-4`}>
                   <MessageList />
+                  <div ref={bottomSentinelRef} className="h-px w-full" aria-hidden="true" />
                 </div>
               </StickToBottom.Content>
             </StickToBottom>
+            {showScrollToBottom && (
+              <button
+                type="button"
+                onClick={() => {
+                  scrollToBottom()
+                  if (!isMobileViewport()) {
+                    composerRef.current?.focus()
+                  }
+                }}
+                className="bg-primary text-primary-foreground hover:bg-primary/90 absolute right-4 bottom-4 z-20 inline-flex size-9 items-center justify-center rounded-full shadow-md transition-colors"
+                aria-label="Scroll to bottom"
+                title="Scroll to bottom"
+              >
+                <ArrowDown className="size-4" aria-hidden="true" />
+              </button>
+            )}
             {selection && !inlinePopup && (
               <SelectionActionBubble
                 selection={selection}

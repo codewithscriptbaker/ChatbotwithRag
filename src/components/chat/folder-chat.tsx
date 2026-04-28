@@ -11,6 +11,12 @@ import type { ChatStreamPhase, ChatStreamStatus } from '@/lib/chat-utils'
 import { generateId } from '@/lib/id'
 import type { ChatMessage } from '@/lib/types'
 import { cn } from '@/lib/utils'
+import {
+  selectCommitConversation,
+  selectGetMessagesForChat,
+  selectOnChangeChat,
+  useChatStore
+} from '@/store/chat-store'
 import { ArrowRight, FileText, FolderClosed, Loader2, MessageSquareText, Search, Sparkles } from 'lucide-react'
 
 type FolderFile = {
@@ -123,7 +129,11 @@ function FolderWelcome({
 export function FolderChat({ folderId }: FolderChatProps): React.JSX.Element {
   const searchParams = useSearchParams()
   const fallbackFolderName = searchParams.get('name')?.trim() || 'Folder Chat'
+  const folderChatId = `folder:${folderId}`
   const composerRef = useRef<ChatComposerHandle>(null)
+  const onChangeChat = useChatStore(selectOnChangeChat)
+  const getMessagesForChat = useChatStore(selectGetMessagesForChat)
+  const commitConversation = useChatStore(selectCommitConversation)
 
   const [folder, setFolder] = useState<FolderData | null>(null)
   const [messages, setMessages] = useState<ChatMessage[]>([])
@@ -151,6 +161,27 @@ export function FolderChat({ folderId }: FolderChatProps): React.JSX.Element {
 
   const folderDisplayName = folder?.name || fallbackFolderName
 
+  useEffect(() => {
+    const existingMessages = getMessagesForChat(folderChatId)
+    if (existingMessages.length > 0) {
+      setMessages(existingMessages)
+      return
+    }
+    setMessages([])
+  }, [folderChatId, getMessagesForChat])
+
+  useEffect(() => {
+    const now = new Date().toISOString()
+    onChangeChat({
+      id: folderChatId,
+      title: folderDisplayName,
+      createdAt: now,
+      updatedAt: now,
+      folderId,
+      folderName: folderDisplayName
+    })
+  }, [folderChatId, folderDisplayName, folderId, onChangeChat])
+
   const handleSend = useCallback(
     async (payload: ChatComposerPayload): Promise<boolean> => {
       const question = payload.text.trim()
@@ -165,7 +196,9 @@ export function FolderChat({ folderId }: FolderChatProps): React.JSX.Element {
         parts: [{ type: 'text', text: question }],
         createdAt: new Date()
       }
-      setMessages((prev) => [...prev, userMsg])
+      const messagesWithUser = [...messages, userMsg]
+      setMessages(messagesWithUser)
+      commitConversation(folderChatId, messagesWithUser, { persist: true, updateMeta: true })
 
       try {
         const formData = new FormData()
@@ -185,7 +218,9 @@ export function FolderChat({ folderId }: FolderChatProps): React.JSX.Element {
           parts: [{ type: 'text', text: body.answer || 'No response generated.' }],
           createdAt: new Date()
         }
-        setMessages((prev) => [...prev, assistantMsg])
+        const completedMessages = [...messagesWithUser, assistantMsg]
+        setMessages(completedMessages)
+        commitConversation(folderChatId, completedMessages, { persist: true, updateMeta: true })
         return true
       } catch (e) {
         const errText = e instanceof Error ? e.message : 'Unknown error'
@@ -195,7 +230,7 @@ export function FolderChat({ folderId }: FolderChatProps): React.JSX.Element {
         setIsSending(false)
       }
     },
-    [folderId]
+    [commitConversation, folderChatId, folderId, messages]
   )
 
   const handleStop = useCallback(() => {
@@ -204,8 +239,9 @@ export function FolderChat({ folderId }: FolderChatProps): React.JSX.Element {
 
   const handleClear = useCallback(() => {
     setMessages([])
+    commitConversation(folderChatId, [], { persist: true, updateMeta: true })
     setComposerError(null)
-  }, [])
+  }, [commitConversation, folderChatId])
 
   const handleDismissError = useCallback(() => {
     setComposerError(null)

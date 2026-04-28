@@ -5,8 +5,14 @@ import time
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
 from app.core.config import get_settings
-from app.models.document import DocumentRecord, DocumentStatus, list_documents, save_document
-from app.models.folder import FolderRecord, get_folder, list_folders, save_folder
+from app.models.document import (
+    DocumentRecord,
+    DocumentStatus,
+    delete_document,
+    list_documents,
+    save_document,
+)
+from app.models.folder import FolderRecord, delete_folder, get_folder, list_folders, save_folder
 from app.schemas.chat import ChatResponse, Citation
 from app.schemas.folder import (
     FolderCreateResponse,
@@ -15,10 +21,11 @@ from app.schemas.folder import (
     FolderListItem,
 )
 from app.services.chat_service import build_prompt, generate_answer
-from app.services.file_service import save_upload, validate_upload
+from app.services.file_service import delete_upload, save_upload, validate_upload
 from app.services.ingestion_service import run_ingestion
 from app.services.retrieval_service import retrieve_by_folder
 from app.utils.ids import generate_id
+from app.vectorstore.indexer import delete_document_chunks
 
 router = APIRouter(tags=["folders"])
 
@@ -128,6 +135,24 @@ async def list_all_folders():
             )
         )
     return response
+
+
+@router.delete("/folders/{folder_id}")
+async def remove_folder(folder_id: str):
+    folder = get_folder(folder_id)
+    if folder is None:
+        raise HTTPException(status_code=404, detail="Folder not found")
+
+    docs = list_documents(folder_id=folder_id)
+    for doc in docs:
+        deleted = delete_document(doc.document_id)
+        if deleted is None:
+            continue
+        delete_document_chunks(doc.document_id)
+        delete_upload(doc.storage_path)
+
+    delete_folder(folder_id)
+    return {"message": f"Folder {folder_id} deleted"}
 
 
 @router.post("/folders/{folder_id}/chat", response_model=ChatResponse)

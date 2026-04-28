@@ -1,12 +1,13 @@
 import time
+import json
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
 
-from agents.rag_graph import run_chat_graph
+from agents.rag_graph import run_chat_graph, run_chat_graph_stream
 from app.core.config import get_settings
 from app.models.document import DocumentStatus, get_document
 from app.schemas.chat import ChatRequest, ChatResponse, Citation
-from app.services.chat_service import generate_answer
 
 router = APIRouter(tags=["chat"])
 
@@ -70,103 +71,127 @@ def _extract_latest_user_context(messages: list[dict]) -> str:
     return ""
 
 
-@router.post("/chat", response_model=ChatResponse)
-async def chat_with_document(req: ChatRequest):
-    print("[API] /chat: handler entered", flush=True)
-    start = time.perf_counter()
+def _extract_latest_user_text(messages: list[dict]) -> str:
+    for message in reversed(messages):
+        if message.get("role") != "user":
+            continue
 
-    # Generic chat mode (no document_id provided)
-    if not req.document_id:
-        question = (req.question or "").strip()
-        if not question and req.messages:
-            question = _extract_latest_user_context(req.messages)
-        if not question and req.prompt:
-            question = req.prompt.strip()
-        if not question:
-            raise HTTPException(status_code=400, detail="Question is required")
+        parts = message.get("parts")
+        if not isinstance(parts, list):
+            continue
 
-        routed_document_id = _first_non_empty(req.document_ids)
-        if routed_document_id:
-            doc = get_document(routed_document_id)
-            if doc is None:
-                raise HTTPException(status_code=404, detail="Document not found")
+        texts: list[str] = []
+        for part in parts:
+            if not isinstance(part, dict):
+                continue
+            if part.get("type") != "text":
+                continue
+            if not isinstance(part.get("text"), str):
+                continue
+            text = part["text"].strip()
+            if text:
+                texts.append(text)
 
-            if doc.status == DocumentStatus.PROCESSING:
-                raise HTTPException(
-                    status_code=409, detail="Document is still being processed"
-                )
-            if doc.status == DocumentStatus.FAILED:
-                raise HTTPException(
-                    status_code=422, detail=f"Document ingestion failed: {doc.error}"
-                )
-            if doc.status != DocumentStatus.READY:
-                raise HTTPException(
-                    status_code=409, detail=f"Document status: {doc.status}"
-                )
+        if texts:
+            return "\n\n".join(texts)[:_MAX_TOTAL_CHARS]
+    return ""
 
-            print("[API] /chat: invoking graph (generic mode)", flush=True)
-            graph_result = await run_chat_graph(
-                document_id=routed_document_id,
-                question=question,
-                top_k=req.top_k,
-                temperature=req.temperature,
-            )
 
-            chunks = graph_result.get("chunks", [])
-            citations = [
-                Citation(
-                    chunk_index=c.chunk_index,
-                    score=c.score,
-                    snippet=c.text[:200],
-                )
-                for c in chunks
-            ]
+def _has_attached_note(messages: list[dict] | None) -> bool:
+    if not messages:
+        return False
+    for message in reversed(messages):
+        if message.get("role") != "user":
+            continue
+        parts = message.get("parts")
+        if not isinstance(parts, list):
+            continue
+        for part in parts:
+            if not isinstance(part, dict):
+                continue
+            if part.get("type") == "data-document":
+                return True
+    return False
 
-            return ChatResponse(
-                answer=graph_result.get("answer", "No answer generated."),
-                citations=citations,
-                model=get_settings().ollama_chat_model,
-                latency_ms=int((time.perf_counter() - start) * 1000),
-            )
 
-        answer = await generate_answer(question, temperature=req.temperature)
-        return ChatResponse(
-            answer=answer,
-            citations=[],
-            model=get_settings().ollama_chat_model,
-            latency_ms=int((time.perf_counter() - start) * 1000),
-        )
+def _resolve_question(req: ChatRequest) -> str:
+    q = (req.question or "").strip()
+    if q:
+        return q
+    if req.messages:
+        q = _extract_latest_user_context(req.messages)
+        if q:
+            return q
+    if req.prompt:
+        return req.prompt.strip()
+    return ""
 
-    if not req.question:
-        raise HTTPException(status_code=400, detail="Question is required")
 
-    doc = get_document(req.document_id)
+def _resolve_user_query(req: ChatRequest, question: str) -> str:
+    user_query = (req.question or "").strip()
+    if not user_query and req.messages:
+        user_query = _extract_latest_user_text(req.messages)
+    if not user_query and req.prompt:
+        user_query = req.prompt.strip()
+    if not user_query:
+        user_query = question
+    return user_query
+
+
+def _resolve_effective_document_id(req: ChatRequest) -> str | None:
+    if req.document_id and str(req.document_id).strip():
+        return str(req.document_id).strip()
+    return _first_non_empty(req.document_ids)
+
+
+def _validate_document_ready(document_id: str) -> None:
+    doc = get_document(document_id)
     if doc is None:
         raise HTTPException(status_code=404, detail="Document not found")
 
     if doc.status == DocumentStatus.PROCESSING:
         raise HTTPException(status_code=409, detail="Document is still being processed")
     if doc.status == DocumentStatus.FAILED:
-        raise HTTPException(
-            status_code=422, detail=f"Document ingestion failed: {doc.error}"
-        )
+        raise HTTPException(status_code=422, detail=f"Document ingestion failed: {doc.error}")
     if doc.status != DocumentStatus.READY:
         raise HTTPException(status_code=409, detail=f"Document status: {doc.status}")
 
-    print("[API] /chat: invoking graph", flush=True)
 
+@router.post("/chat", response_model=ChatResponse)
+async def chat_with_document(req: ChatRequest):
+    print("[API] /chat: handler entered", flush=True)
+    start = time.perf_counter()
+
+    question = _resolve_question(req)
+    print(f'\n\n user query question \n\n {question} \n\n')
+    if not question:
+        raise HTTPException(status_code=400, detail="Question is required")
+
+    user_query = _resolve_user_query(req, question)
+
+    has_attached_note = _has_attached_note(req.messages)
+
+    effective_document_id = _resolve_effective_document_id(req)
+
+    if effective_document_id:
+        _validate_document_ready(effective_document_id)
+
+    print("[API] /chat: invoking graph", flush=True)
     graph_result = await run_chat_graph(
-        document_id=req.document_id,
-        question=req.question,
+        document_id=effective_document_id,
+        question=question,
+        user_query=user_query,
+        has_attached_note=has_attached_note,
         top_k=req.top_k,
         temperature=req.temperature,
     )
 
-    print("[API] /chat: LangGraph completed")
+    # print("[API] /chat: LangGraph completed", flush=True)
+    # print("[API] /chat: LangGraph result:", graph_result, flush=True)
 
-    print("[API] /chat: LangGraph result:", graph_result)
+    chunks = graph_result.get("chunks") or []
 
-    chunks = graph_result.get("chunks", [])
+    # print(f'\n\n graph result \n\n {graph_result} \n\n')
     citations = [
         Citation(
             chunk_index=c.chunk_index,
@@ -176,6 +201,7 @@ async def chat_with_document(req: ChatRequest):
         for c in chunks
     ]
 
+    # print(f'\n\n citations \n\n {citations} \n\n')
     latency_ms = int((time.perf_counter() - start) * 1000)
 
     return ChatResponse(
@@ -184,3 +210,29 @@ async def chat_with_document(req: ChatRequest):
         model=get_settings().ollama_chat_model,
         latency_ms=latency_ms,
     )
+
+
+@router.post("/chat/stream")
+async def chat_with_document_stream(req: ChatRequest):
+    question = _resolve_question(req)
+    if not question:
+        raise HTTPException(status_code=400, detail="Question is required")
+
+    user_query = _resolve_user_query(req, question)
+    has_attached_note = _has_attached_note(req.messages)
+    effective_document_id = _resolve_effective_document_id(req)
+    if effective_document_id:
+        _validate_document_ready(effective_document_id)
+
+    async def event_stream():
+        async for event in run_chat_graph_stream(
+            document_id=effective_document_id,
+            question=question,
+            user_query=user_query,
+            has_attached_note=has_attached_note,
+            top_k=req.top_k,
+            temperature=req.temperature,
+        ):
+            yield f"data: {json.dumps(event)}\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
